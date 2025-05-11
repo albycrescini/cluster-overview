@@ -1,0 +1,164 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: whereami
+  name: whereami
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      app: whereami
+  template:
+    metadata:
+      labels:
+        app: whereami
+        version: v1
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: whereami
+      serviceAccountName: whereami
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: whereami
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - all
+            privileged: false
+            readOnlyRootFilesystem: true
+          image: us-docker.pkg.dev/google-samples/containers/gke/whereami:v1.2.19
+          ports:
+            - name: http
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: POD_SERVICE_ACCOUNT
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.serviceAccountName
+            - name: BACKEND_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: whereami
+                  key: BACKEND_ENABLED
+            - name: BACKEND_SERVICE
+              valueFrom:
+                configMapKeyRef:
+                  name: whereami
+                  key: BACKEND_SERVICE
+            - name: METADATA
+              valueFrom:
+                configMapKeyRef:
+                  name: whereami
+                  key: METADATA
+            - name: ECHO_HEADERS
+              valueFrom:
+                configMapKeyRef:
+                  name: whereami
+                  key: ECHO_HEADERS
+            - name: GRPC_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: whereami
+                  key: GRPC_ENABLED
+            - name: TRACE_SAMPLING_RATIO
+              valueFrom:
+                configMapKeyRef:
+                  name: whereami
+                  key: TRACE_SAMPLING_RATIO
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: whereami
+  name: whereami
+data:
+  BACKEND_ENABLED: "False" # flag to enable backend service call "False" || "True"
+  # when defining the BACKEND_SERVICE using an HTTP protocol, indicate HTTP or HTTPS; if using gRPC, use the host name only
+  BACKEND_SERVICE: "http://whereami-backend" # substitute with corresponding service name - this example assumes both services are in the same namespace
+  METADATA: "frontend" # arbitrary string that gets returned in payload - can be used to track which services you're interacting with
+  ECHO_HEADERS: "True" # flag to enable the payload including all headers received in the `echo_headers` field if set to "True"
+  GRPC_ENABLED: "False" # flag to switch whereami service to gRPC mode
+  TRACE_SAMPLING_RATIO: "0.00" # trace sampling ratio; i.e. the % likelyhood a trace will be sent to Cloud Trace; setting to zero disables tracing; expects float. "0.10" == 10%
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: whereami
+  name: whereami
+  annotations:
+    prometheus.io/scrape: 'true'
+    prometheus.io/port: '8080'
+spec:
+  ports:
+    - port: 80
+      protocol: TCP
+      targetPort: 8080
+      name: http # adding for Istio
+  selector:
+    app: whereami
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: whereami
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: whereami-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  rules:
+    - http:
+        paths:
+          - pathType: Prefix
+            path: /whereami(/|$)(.*)
+            backend:
+              service:
+                name: whereami
+                port:
+                  number: 80
