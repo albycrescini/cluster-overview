@@ -434,6 +434,7 @@ spec:
             - --validating-webhook-key=/usr/local/certificates/key
             - --watch-ingress-without-class=true
             - --publish-status-address=localhost
+            - --metrics-per-host=false
           env:
             - name: POD_NAME
               valueFrom:
@@ -474,6 +475,9 @@ spec:
               protocol: TCP
             - containerPort: 8443
               name: webhook
+              protocol: TCP
+            - containerPort: 10254
+              name: metrics
               protocol: TCP
           readinessProbe:
             failureThreshold: 3

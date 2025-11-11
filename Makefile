@@ -22,9 +22,7 @@ label-nodes:
 deploy:
 		@echo "Installing services"
 		kubectl --context ${CLUSTER_NAME} apply -f ./ingress.yaml
-
 		kubectl --context ${CLUSTER_NAME} wait pod -lapp.kubernetes.io/component=controller  -n ingress-nginx --for=condition=Ready --timeout=180s
-
 		kubectl --context ${CLUSTER_NAME} create ns monitoring
 
 		kubectl --context ${CLUSTER_NAME} apply -f ./prom.yaml
